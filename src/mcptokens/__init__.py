@@ -7,5 +7,5 @@ per-tool tokens plus a realistic wire total. Use BEFORE enabling
 an MCP server so the agent can decide whether the cost is worth it.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 __all__ = ["__version__"]
