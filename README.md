@@ -1,6 +1,6 @@
 # mcptokens
 
-**691 tokens in your agent's harness.** One tool, `inspect`, that
+**576 tokens in your agent's harness.** One tool, `inspect`, that
 counts the tool-definition cost of any other MCP server (stdio or
 Streamable HTTP) before you enable it.
 
@@ -65,7 +65,7 @@ enabling a candidate server: a large value means don't enable.
 
 | | |
 |--|--|
-| **Self-cost on wire** | **691 tokens** of `cl100k_base`            |
+| **Self-cost on wire** | **576 tokens** of `cl100k_base`            |
 | Tools exposed         | **1**, named `inspect`                     |
 | Transports            | stdio, streamable_http                     |
 | Cross-platform        | Linux, macOS, Windows                      |

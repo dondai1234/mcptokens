@@ -51,19 +51,16 @@ _TOOL_DEF: dict = {
     "description": (
         "Count the tool-def token cost of any MCP server (stdio or HTTP).\n"
         "\n"
-        "INPUT. Pass `command` = the EXACT argv your MCP config uses to start\n"
-        "the server. Two forms accepted, both normalized to a list:\n"
+        "INPUT. Pass `command` = the spawn argv identical to your MCP\n"
+        "config's mcpServers.<name> entry. Normalized to a list:\n"
         "  [\"python\",\"-m\",\"some_mcp_server\"]    argv array (preferred)\n"
         "  \"python -m some_mcp_server\"             string, shlex-split\n"
         "\n"
-        "Common patterns:\n"
+        "Examples (canonical spawn patterns):\n"
         "  [\"hound\"]                                pre-installed binary\n"
         "  [\"python\",\"-m\",\"some_pkg\"]            python module\n"
         "  [\"npx\",\"-y\",\"@scope/pkg\",\"--arg\"] npm-based server\n"
         "  [\"docker\",\"run\",\"-i\",\"img\",\"--\"]   docker container (stdio)\n"
-        "\n"
-        "If you do not already KNOW the exact argv, ASK THE USER. Don't\n"
-        "guess. Don't infer from package names alone.\n"
         "\n"
         "For a remote/hosted server, set transport=\"streamable_http\" and\n"
         "pass `url` (e.g. \"http://localhost:8080/mcp\") and optional\n"
@@ -72,15 +69,15 @@ _TOOL_DEF: dict = {
         "OUTPUT. Same shape every call, regardless of transport:\n"
         "  {ok: bool, server: str, tool_count: int,\n"
         "   wire_total_tokens: int,\n"
-        "   tools: [{name, total: int}],   # name and total only by default\n"
+        "   tools: [{name, total: int}],   # name and total only\n"
         "   elapsed_ms, encoding, version}\n"
         "\n"
-        "The single number that matters is `wire_total_tokens`. Report\n"
-        "that. Use this BEFORE enabling an MCP server: a large value\n"
-        "means the server is too expensive for the harness.\n"
+        "The number to surface is `wire_total_tokens`. Use this BEFORE\n"
+        "enabling an MCP server: a large value means the server is too\n"
+        "expensive for the harness.\n"
         "\n"
-        "This server's own cost is ~172 tokens in your harness. Cheap\n"
-        "to ship; one tool call per candidate server."
+        "This server's own cost is in your harness. Cheap; one call per\n"
+        "candidate server."
     ),
     "inputSchema": {
         "type": "object",
@@ -90,14 +87,14 @@ _TOOL_DEF: dict = {
                     {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Spawn argv (preferred, identical to your MCP config).",
+                        "description": "Spawn argv (preferred).",
                     },
                     {
                         "type": "string",
                         "description": "Spawn argv as a single string (shlex-split).",
                     },
                 ],
-                "description": "Required when transport='stdio' (default). The argv that starts the MCP server. If you don't know it, ASK the user.",
+                "description": "Required when transport='stdio' (default). The argv that starts the MCP server.",
             },
             "transport": {
                 "type": "string",
@@ -112,20 +109,18 @@ _TOOL_DEF: dict = {
             "headers": {
                 "type": "object",
                 "additionalProperties": {"type": "string"},
-                "description": "Optional HTTP headers (e.g. {'Authorization': 'Bearer ...'}). Forwarded on every request.",
+                "description": "Optional HTTP headers (e.g. {'Authorization': 'Bearer ...'}).",
             },
             "encoding": {
                 "type": "string",
                 "enum": list(SUPPORTED_ENCODINGS),
                 "default": DEFAULT_ENCODING,
-                "description": "Tiktoken encoding. Default 'cl100k_base'; use 'o200k_base' for GPT-4o / GPT-5.",
             },
             "timeout": {
                 "type": "number",
                 "default": DEFAULT_TIMEOUT_SECONDS,
                 "minimum": 1,
                 "maximum": 60,
-                "description": "Wall-clock timeout in seconds. Default 15, range 1..60.",
             },
         },
         "required": [],

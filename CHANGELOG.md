@@ -4,6 +4,29 @@ All notable changes to `mcptokens` are documented in this file.
 
 ## [Unreleased]
 
+## [1.0.1] — 2026-06-14
+
+UX fix. v1.0.0's tool description said: "If you do not already
+KNOW the exact argv, ASK THE USER." Dondai called this out as
+bad UX. The agent has every right to figure out the matching
+argv on its own (read the harness's MCP config, inspect a
+running server, etc.) without pestering the user for every
+candidate.
+
+Removed. The description now lists canonical spawn patterns
+(binary, python module, npx, docker) as references only. The
+agent picks one of:
+
+  inspect(command=["python","-m","some_mcp_server"])
+
+shape (string or array shlex-split) and figures the rest out
+itself. Tests pin: `test_description_does_not_pester_user`
+asserts no "ask the user" string remains in the description or
+its upper-case variant.
+
+Self-cost dropped 691 → 576 tokens of `cl100k_base` as a
+side-effect of removing the user-pestering line.
+
 ## [1.0.0] — 2026-06-14
 
 First major release. One tool — `inspect` — now covers both

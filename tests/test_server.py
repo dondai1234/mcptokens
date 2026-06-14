@@ -74,6 +74,19 @@ def test_description_is_tight():
     assert desc_tokens < 500, f"description is {desc_tokens} tokens; trim"
 
 
+def test_description_does_not_pester_user():
+    """v1.0.0 had a `If you do not already KNOW the exact argv, ASK
+    THE USER` line in the description. Dondai called this out:
+    the agent should figure out spawn args (it's allowed to read
+    its own MCP config, ask the user via the agent's own tools,
+    etc.). Pining this so the line never sneaks back in."""
+    import mcptokens._server as server
+    desc = server._TOOL_DEF["description"]
+    assert "ASK THE USER" not in desc.upper()
+    assert "ask the user" not in desc.lower()
+
+
+
 # --- 2. One tool exposed via list_tools() -------------------------------
 
 
