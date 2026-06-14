@@ -104,7 +104,10 @@ def test_main_version_only(capsys):
     assert rc == 0
     out = capsys.readouterr().out
     assert "mcptokens" in out
-    assert "0.1.0" in out
+    # Pin: pin to the running version. Drift between __init__
+    # version and CLI test string is a smell.
+    import mcptokens
+    assert mcptokens.__version__ in out
 
 
 def test_main_empty_argv_exits_zero(capsys):
