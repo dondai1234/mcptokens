@@ -87,6 +87,26 @@ def test_description_does_not_pester_user():
     assert "ask the user" not in desc.lower()
 
 
+def test_description_has_wrong_vs_right_examples():
+    """v1.1.0: the #1 agent mistake is passing a server name instead
+    of the full spawn command. The description must show WRONG vs
+    RIGHT examples so the agent learns on the first try."""
+    import mcptokens._server as server
+    desc = server._TOOL_DEF["description"]
+    assert "WRONG" in desc, "description missing WRONG example"
+    assert "RIGHT" in desc, "description missing RIGHT examples"
+    assert "config" in desc.lower(), "description doesn't mention MCP config"
+    assert "full" in desc.lower() or "exact" in desc.lower()
+
+
+def test_description_mentions_not_just_name():
+    """Pin: the description must explicitly say command is NOT just
+    the server name. This is the #1 agent mistake."""
+    import mcptokens._server as server
+    desc = server._TOOL_DEF["description"]
+    assert "not just" in desc.lower() or "not the" in desc.lower()
+
+
 
 # --- 2. One tool exposed via list_tools() -------------------------------
 

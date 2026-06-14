@@ -49,35 +49,28 @@ _MAX_MESSAGE_BYTES = 100 * 1024 * 1024  # 100MB; protects against runaways
 _TOOL_DEF: dict = {
     "name": "inspect",
     "description": (
-        "Count the tool-def token cost of any MCP server (stdio or HTTP).\n"
+        "Count the tool-def token cost of any MCP server before enabling it.\n"
         "\n"
-        "INPUT. Pass `command` = the spawn argv identical to your MCP\n"
-        "config's mcpServers.<name> entry. Normalized to a list:\n"
-        "  [\"python\",\"-m\",\"some_mcp_server\"]    argv array (preferred)\n"
-        "  \"python -m some_mcp_server\"             string, shlex-split\n"
+        "CRITICAL: `command` is the FULL spawn line from your harness MCP\n"
+        "config — the exact command that starts the server. NOT just the\n"
+        "server name.\n"
         "\n"
-        "Examples (canonical spawn patterns):\n"
-        "  [\"hound\"]                                pre-installed binary\n"
-        "  [\"python\",\"-m\",\"some_pkg\"]            python module\n"
-        "  [\"npx\",\"-y\",\"@scope/pkg\",\"--arg\"] npm-based server\n"
-        "  [\"docker\",\"run\",\"-i\",\"img\",\"--\"]   docker container (stdio)\n"
+        "WRONG: [\"filesystem\"]           ← a name, not a command\n"
+        "RIGHT: [\"npx\",\"-y\",\"@anthropic-ai/mcp-filesystem\",\"/path\"]\n"
+        "RIGHT: [\"python\",\"-m\",\"some_server\"]\n"
+        "RIGHT: [\"hound\"]                 ← pre-installed binary\n"
+        "RIGHT: \"python -m srv\"           ← string form (shlex-split)\n"
         "\n"
-        "For a remote/hosted server, set transport=\"streamable_http\" and\n"
-        "pass `url` (e.g. \"http://localhost:8080/mcp\") and optional\n"
-        "`headers` (e.g. {Authorization: \"Bearer ...\"}).\n"
+        "Don't know the command? Check your harness MCP config\n"
+        "(mcpServers entries) for the exact argv.\n"
         "\n"
-        "OUTPUT. Same shape every call, regardless of transport:\n"
-        "  {ok: bool, server: str, tool_count: int,\n"
-        "   wire_total_tokens: int,\n"
-        "   tools: [{name, total: int}],   # name and total only\n"
-        "   elapsed_ms, encoding, version}\n"
+        "For remote servers: transport=\"streamable_http\", url=\"http://host/mcp\",\n"
+        "optional headers={Authorization: \"Bearer ...\"}.\n"
         "\n"
-        "The number to surface is `wire_total_tokens`. Use this BEFORE\n"
-        "enabling an MCP server: a large value means the server is too\n"
-        "expensive for the harness.\n"
+        "Returns: {ok, server, tool_count, wire_total_tokens,\n"
+        "  tools: [{name, tokens}], error, hint, encoding, elapsed_ms, version}\n"
         "\n"
-        "This server's own cost is in your harness. Cheap; one call per\n"
-        "candidate server."
+        "`wire_total_tokens` is the number to report. Use BEFORE enabling."
     ),
     "inputSchema": {
         "type": "object",
@@ -87,29 +80,29 @@ _TOOL_DEF: dict = {
                     {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Spawn argv (preferred).",
+                        "description": "Full spawn argv from MCP config.",
                     },
                     {
                         "type": "string",
-                        "description": "Spawn argv as a single string (shlex-split).",
+                        "description": "Full spawn line as string (shlex-split).",
                     },
                 ],
-                "description": "Required when transport='stdio' (default). The argv that starts the MCP server.",
+                "description": "Required for stdio (default). The FULL command that starts the server, e.g. [\"npx\",\"-y\",\"@scope/pkg\"]. NOT just the server name.",
             },
             "transport": {
                 "type": "string",
                 "enum": ["stdio", "streamable_http"],
                 "default": "stdio",
-                "description": "stdio: spawn a local process. streamable_http: POST to a remote endpoint per MCP 2025-03-26.",
+                "description": "stdio: spawn a local process. streamable_http: POST to a remote endpoint.",
             },
             "url": {
                 "type": "string",
-                "description": "Required when transport='streamable_http'. Server endpoint, e.g. 'http://localhost:8080/mcp'.",
+                "description": "Required when transport='streamable_http'. E.g. 'http://localhost:8080/mcp'.",
             },
             "headers": {
                 "type": "object",
                 "additionalProperties": {"type": "string"},
-                "description": "Optional HTTP headers (e.g. {'Authorization': 'Bearer ...'}).",
+                "description": "Optional HTTP headers (e.g. {Authorization: 'Bearer ...'}).",
             },
             "encoding": {
                 "type": "string",
@@ -176,8 +169,9 @@ async def _call_tool(name: str, arguments: dict) -> list:
             "wire_total_tokens": 0,
             "encoding": req.get("encoding", DEFAULT_ENCODING),
             "elapsed_ms": 0,
-            "version": __version__,
             "error": f"internal: {type(exc).__name__}: {exc}",
+            "hint": "",
+            "version": __version__,
         }
     return [types.TextContent(type="text", text=json.dumps(payload))]
 

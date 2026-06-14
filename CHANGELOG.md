@@ -4,6 +4,62 @@ All notable changes to `mcptokens` are documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-06-14
+
+Agent-stupidity fix and production hardening.
+
+The #1 failure mode in the wild: agents pass a server name
+(`["filesystem"]`) instead of the full spawn argv, get `ok: false`
+with no explanation (the `error` field was silently dropped from
+`as_dict()`), and go on a wild goose chase burning thousands of
+tokens searching for config files. Three fixes address this:
+
+**Critical bug: `as_dict()` dropped `error` field.** The agent saw
+`{"ok": false}` with zero context on why. Fixed: `error` and `hint`
+are always present in the serialised output. The agent now sees
+`"error": "spawn failed: command not found: 'filesystem'"` and
+`"hint": "Check your harness MCP config for the exact spawn command."`.
+
+**Tool description rewritten.** Leads with the #1 mistake:
+`WRONG: ["filesystem"]` vs `RIGHT: ["npx","-y","@anthropic-ai/mcp-filesystem","/path"]`.
+Explicitly says `command` is the FULL spawn line from the harness
+MCP config, NOT just the server name. Points the agent to its
+harness config when it doesn't know the argv. Self-cost: 505 tokens
+(was 576), still well under the 1000 budget.
+
+**Actionable `hint` field.** Every failure path now includes a `hint`
+string directing the agent to self-correct. Stdio failures: "Check
+your harness MCP config". Unknown transport: "must be 'stdio' or
+'streamable_http'". Missing URL: "Pass url='http://host/mcp'".
+
+**Windows `.cmd` resolution.** `npx`, `uvx`, etc. are `.cmd` files
+on Windows. `subprocess.Popen` without `shell=True` can't find them
+via `CreateProcess`. The `_spawn` function now falls back to
+`shutil.which` (which checks `PATHEXT`) and retries with the
+resolved full path. Tested live against `npx -y
+@modelcontextprotocol/server-filesystem` on Windows.
+
+**Windows path handling.** `_coerce_command` now uses `posix=False`
+on Windows so backslash path separators (`C:\Users\...`) survive the
+shlex split. Quotes are stripped manually afterwards so
+`"my server"` still works.
+
+**SSE parser hardening.** Events without a `data` field are skipped
+instead of causing a `KeyError` downstream.
+
+**Metadata fix.** `pyproject.toml` description said "172 tokens"
+(stale from v0.1.0). Updated to reflect actual self-cost.
+
+Tests: 56 / 56 passing in ~26 s. New tests pin:
+
+- `error` and `hint` always present in `as_dict()` output.
+- `hint` directs agent to harness config on spawn failures.
+- Description has WRONG vs RIGHT examples.
+- Description mentions MCP config as source of truth.
+- Windows backslash paths survive shlex split.
+- Windows quote stripping works with `posix=False`.
+- `npx` spawns successfully via `.cmd` resolution.
+
 ## [1.0.1] — 2026-06-14
 
 UX fix. v1.0.0's tool description told the agent to ask the

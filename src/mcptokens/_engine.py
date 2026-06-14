@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -87,13 +88,16 @@ class InspectReport:
     encoding: str = DEFAULT_ENCODING
     elapsed_ms: int = 0
     error: str = ""
+    hint: str = ""
     version: str = ""
 
     def as_dict(self, *, verbose: bool = False) -> dict[str, Any]:
         """Serialize the report. `verbose=False` (default) keeps the
         payload compact so the agent can scan many reports in one
         prompt without burning its context on per-tool schema dumps.
-        Set `verbose=True` to include the full Recipe A+ breakdown."""
+        Set `verbose=True` to include the full Recipe A+ breakdown.
+        `error` and `hint` are always present so the agent sees WHY
+        a call failed, not just that it did."""
         if verbose:
             tool_payloads = [t.as_dict() for t in self.tools]
         else:
@@ -108,6 +112,8 @@ class InspectReport:
             "wire_total_tokens": self.wire_total_tokens,
             "encoding": self.encoding,
             "elapsed_ms": self.elapsed_ms,
+            "error": self.error,
+            "hint": self.hint,
             "version": self.version,
         }
 
@@ -182,7 +188,9 @@ class _Killed(Exception):
 
 def _spawn(cmd: list[str]) -> subprocess.Popen:
     """Spawn the server. Never raise FileNotFoundError — re-raise as
-    `InspectError` so the agent gets one predictable failure type."""
+    `InspectError` so the agent gets one predictable failure type.
+    On Windows, resolves `.cmd`/`.bat` wrappers (npx, uvx, etc.) via
+    `shutil.which` since `CreateProcess` doesn't find them bare."""
     if not cmd:
         raise InspectError("spawn cmd is empty")
     try:
@@ -193,8 +201,24 @@ def _spawn(cmd: list[str]) -> subprocess.Popen:
             stderr=subprocess.PIPE,
             bufsize=0,
         )
-    except FileNotFoundError as exc:
-        raise InspectError(f"spawn failed: command not found: {cmd[0]!r}") from exc
+    except FileNotFoundError:
+        # Windows: `npx`, `uvx`, etc. are `.cmd` files. Popen without
+        # shell=True can't find them via CreateProcess. Try resolving
+        # the full path (shutil.which checks PATHEXT on Windows).
+        if sys.platform == "win32":
+            resolved = shutil.which(cmd[0])
+            if resolved:
+                try:
+                    return subprocess.Popen(
+                        [resolved] + cmd[1:],
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        bufsize=0,
+                    )
+                except (PermissionError, OSError) as exc:
+                    raise InspectError(f"spawn failed: {exc}") from exc
+        raise InspectError(f"spawn failed: command not found: {cmd[0]!r}")
     except (PermissionError, OSError) as exc:
         raise InspectError(f"spawn failed: {exc}") from exc
 
@@ -433,9 +457,11 @@ def _drain_stderr(proc: subprocess.Popen, *, max_chars: int) -> str:
 
 def _coerce_command(command) -> list[str]:
     """`command` may arrive as a string OR a list of strings. We
-    normalise to a list. Strings are split using POSIX shell rules
+    normalise to a list. Strings are split using shell rules
     so users can pass `"python -m srv"` exactly as written in their
-    MCP config without re-tokenising."""
+    MCP config without re-tokenising. On Windows, posix=False so
+    backslash path separators survive the split; quotes are stripped
+    from each token afterwards."""
     import shlex
     if isinstance(command, list):
         if not command or not all(isinstance(a, str) for a in command):
@@ -445,12 +471,22 @@ def _coerce_command(command) -> list[str]:
         if not command.strip():
             raise InspectError("command string is empty")
         try:
-            return shlex.split(command, posix=True)
+            parts = shlex.split(command, posix=(os.name != "nt"))
         except ValueError as exc:
             raise InspectError(f"command string failed shlex split: {exc!r}") from exc
+        # On Windows (posix=False), quotes aren't stripped. Do it manually.
+        if os.name == "nt":
+            parts = [
+                p.strip('"') if len(p) >= 2 and p[0] == '"' and p[-1] == '"' else p
+                for p in parts
+            ]
+        return parts
     raise InspectError(
         f"command must be a string or list of strings, got {type(command).__name__}"
     )
+
+
+_HINT_HARNESS = "Check your harness MCP config for the exact spawn command."
 
 
 def _fail_report(
@@ -459,9 +495,11 @@ def _fail_report(
     version: str,
     error: str,
     *,
+    hint: str = "",
     started_monotonic: float,
 ) -> InspectReport:
-    """Build a non-OK report with zero tools but a one-line error."""
+    """Build a non-OK report with zero tools but a one-line error
+    and an actionable hint so the agent can self-correct."""
     return InspectReport(
         ok=False,
         server=server,
@@ -470,6 +508,7 @@ def _fail_report(
         encoding=encoding,
         elapsed_ms=int((time.monotonic() - started_monotonic) * 1000),
         error=error,
+        hint=hint,
         version=version,
     )
 
@@ -504,12 +543,14 @@ def inspect(req: dict[str, Any]) -> InspectReport:
         except InspectError as exc:
             return _fail_report(
                 server="<stdio>", encoding=encoding, version=version,
-                error=str(exc), started_monotonic=started,
+                error=str(exc), hint=_HINT_HARNESS,
+                started_monotonic=started,
             )
         if not command:
             return _fail_report(
                 server="<stdio>", encoding=encoding, version=version,
-                error="command is empty", started_monotonic=started,
+                error="command is empty", hint=_HINT_HARNESS,
+                started_monotonic=started,
             )
         try:
             return inspect_server(
@@ -521,7 +562,8 @@ def inspect(req: dict[str, Any]) -> InspectReport:
         except InspectError as exc:
             return _fail_report(
                 server=" ".join(command), encoding=encoding, version=version,
-                error=str(exc), started_monotonic=started,
+                error=str(exc), hint=_HINT_HARNESS,
+                started_monotonic=started,
             )
     if transport == "streamable_http":
         url = req.get("url")
@@ -529,6 +571,7 @@ def inspect(req: dict[str, Any]) -> InspectReport:
             return _fail_report(
                 server="<streamable_http>", encoding=encoding, version=version,
                 error="url is required for streamable_http transport",
+                hint="Pass url=\"http://host/mcp\" for the remote server.",
                 started_monotonic=started,
             )
         headers = req.get("headers") or {}
@@ -554,5 +597,6 @@ def inspect(req: dict[str, Any]) -> InspectReport:
     return _fail_report(
         server=f"<{transport!r}>", encoding=encoding, version=version,
         error=f"unknown transport: {transport!r}",
+        hint="transport must be 'stdio' or 'streamable_http'.",
         started_monotonic=started,
     )

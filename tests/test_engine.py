@@ -11,6 +11,7 @@ from __future__ import annotations
 import http.server
 import json
 import socket
+import subprocess
 import sys
 import textwrap
 import threading
@@ -491,6 +492,104 @@ def test_inspect_unknown_transport_yields_ok_false():
     r = inspect({"transport": "weird"})
     assert r.ok is False
     assert "transport" in r.error
+
+
+# --- v1.1.0: error + hint always present in as_dict() ----------
+
+
+def test_error_field_present_in_as_dict_on_failure():
+    """v1.0.1 bug: as_dict() dropped the `error` field. The agent saw
+    ok=false with no explanation and went on a wild goose chase.
+    Pin: error and hint are ALWAYS in the serialised output."""
+    r = inspect({"command": ["definitely-not-a-real-binary-xyz-999"]})
+    payload = r.as_dict()
+    assert "error" in payload, "error field missing from as_dict()"
+    assert "hint" in payload, "hint field missing from as_dict()"
+    assert payload["error"]  # non-empty
+    assert payload["ok"] is False
+
+
+def test_hint_present_on_command_not_found():
+    """When a binary isn't found, the hint must direct the agent to
+    its harness MCP config — that's where the real spawn argv lives."""
+    r = inspect({"command": ["filesystem"]})
+    assert r.ok is False
+    assert r.hint  # non-empty
+    assert "config" in r.hint.lower() or "harness" in r.hint.lower()
+
+
+def test_hint_present_on_missing_command():
+    """When the agent forgets to pass `command` at all, the hint
+    must tell it where to look."""
+    r = inspect({})
+    assert r.ok is False
+    assert r.hint
+
+
+def test_hint_present_on_unknown_transport():
+    r = inspect({"transport": "grpc"})
+    assert r.ok is False
+    assert r.hint
+    assert "stdio" in r.hint or "streamable" in r.hint
+
+
+def test_error_field_empty_on_success():
+    """On a successful inspect, error and hint are empty strings
+    (not missing, not None)."""
+    import shutil
+    if not shutil.which("hound"):
+        pytest.skip("hound not on PATH")
+    r = inspect({"command": ["hound"], "timeout": 10})
+    assert r.ok is True
+    payload = r.as_dict()
+    assert payload["error"] == ""
+    assert payload["hint"] == ""
+
+
+# --- v1.1.0: Windows path handling -----------------------------
+
+
+def test_coerce_command_preserves_windows_backslash_paths():
+    """On Windows, `posix=False` so backslash paths survive.
+    `C:\\Users\\foo\\srv.py` must NOT become `C:Usersfoosrv.py`."""
+    import os
+    if os.name != "nt":
+        pytest.skip("Windows-only test")
+    result = _coerce_command("python C:\\Users\\Dondai\\srv.py --port 8080")
+    assert "C:\\Users\\Dondai\\srv.py" in result, f"backslash path mangled: {result}"
+
+
+def test_coerce_command_strips_quotes_on_windows():
+    """With posix=False, quotes aren't stripped by shlex. We strip
+    them manually so `"my path"` still works."""
+    import os
+    if os.name != "nt":
+        pytest.skip("Windows-only test")
+    result = _coerce_command('python -m "my server"')
+    assert result == ["python", "-m", "my server"]
+
+
+# --- v1.1.0: Windows .cmd resolution ---------------------------
+
+
+def test_spawn_resolves_cmd_on_windows():
+    """On Windows, `npx` is `npx.cmd`. Popen can't find it without
+    shell=True. The _spawn fallback uses shutil.which to resolve."""
+    import shutil
+    if not shutil.which("npx"):
+        pytest.skip("npx not on PATH")
+    # Just test that _spawn doesn't raise FileNotFoundError for npx.
+    # The process will fail later (wrong args), but spawn must succeed.
+    from mcptokens._engine import _spawn
+    proc = _spawn(["npx", "--version"])
+    try:
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+    # If we got here without FileNotFoundError, the fix works.
+    # Exit code 0 means npx --version ran successfully.
+    assert proc.returncode == 0, f"npx --version exited {proc.returncode}"
 
 
 # --- Compact vs verbose ---------------------------------------

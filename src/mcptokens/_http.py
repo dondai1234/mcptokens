@@ -83,19 +83,20 @@ def _http_post(
 
 def _parse_sse(body_bytes: bytes) -> list[dict[str, str]]:
     """Parse an SSE response body into a list of {event, data} dicts.
-    Empty line separates events. Comment lines start with `:`."""
+    Empty line separates events. Comment lines start with `:`.
+    Events without a `data` field are skipped (they carry no message)."""
     text = body_bytes.decode("utf-8", errors="replace")
     events: list[dict[str, str]] = []
     cur_event: str | None = None
     cur_data: list[str] = []
     for line in text.split("\n"):
         if not line:
-            if cur_data or cur_event is not None:
+            if cur_data:
                 events.append(
                     {"event": cur_event or "message", "data": "\n".join(cur_data)}
                 )
-                cur_event = None
-                cur_data = []
+            cur_event = None
+            cur_data = []
         elif line.startswith(":"):
             continue
         elif ":" in line:
