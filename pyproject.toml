@@ -1,6 +1,6 @@
 [project]
 name = "mcptokens"
-version = "0.1.4"
+version = "0.1.5"
 description = "172 tokens in your agent's harness. One MCP tool that counts the tool-definition cost of any other MCP server."
 readme = "README.md"
 license = {text = "MIT"}

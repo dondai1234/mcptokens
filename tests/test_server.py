@@ -219,3 +219,77 @@ def test_end_to_end_via_real_mcp_client(tmp_path):
                 assert payload["wire_total_tokens"] > 0
 
     asyncio.run(drive())
+
+
+def test_serve_handles_content_length_framing(tmp_path):
+    """Regression: when a parent sends Content-Length framed JSON
+    (OpenCode's framing), the SDK used to log 'Internal Server
+    Error' notifications/message to stdout before the real response,
+    and OpenCode dropped the connection. The pre-processor in
+    `_FramedNDJSONStream` cleans both framings into NDJSON, so the
+    SDK never sees the malformed lines and stdout is clean.
+
+    This test sends valid Content-Length framed input and asserts
+    no error notification leaks to stdout. If we ever regress
+    here, MCP clients like OpenCode will start failing with
+    -32000 'Connection closed' again."""
+    init_body = (
+        b'{"jsonrpc":"2.0","id":1,"method":"initialize",'
+        b'"params":{"protocolVersion":"2024-11-05",'
+        b'"capabilities":{},"clientInfo":'
+        b'{"name":"t","version":"0"}}}'
+    )
+    init_frame = b"Content-Length: " + str(len(init_body)).encode("ascii") + b"\r\n\r\n" + init_body
+    proc = subprocess.Popen(
+        [sys.executable, "-u", "-m", "mcptokens", "serve"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=0,
+    )
+    try:
+        stdout, stderr = proc.communicate(input=init_frame, timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        raise
+    assert b"Internal Server Error" not in stdout, (
+        f"stdout leaked error notification; framing pre-processor is broken.\n"
+        f"stdout: {stdout.decode('utf-8', errors='replace')!r}\n"
+        f"stderr: {stderr.decode('utf-8', errors='replace')!r}"
+    )
+    assert b'"id":1' in stdout
+    assert b'"serverInfo"' in stdout
+
+
+def test_framed_stream_handles_ndjson_and_framed_mixed():
+    """Direct unit test on the framing pre-processor. NDJSON and
+    Content-Length framed messages can be interleaved on a single
+    stdin. The pre-processor emits one NDJSON line per message
+    regardless of which framing the parent used."""
+    import io as _io
+    from mcptokens._server import _FramedNDJSONStream
+
+    body1 = b'{"a":1}'
+    body2 = b'{"b":"two"}'
+    raw = (
+        b'{"pre":true}\n'
+        + b"Content-Length: " + str(len(body1)).encode("ascii") + b"\r\n\r\n" + body1
+        + b'{"mid":true}\n'
+        + b"Content-Length: " + str(len(body2)).encode("ascii") + b"\r\n\r\n" + body2
+        + b'{"post":true}'
+    )
+    s = _FramedNDJSONStream(_io.BytesIO(raw))
+    out = []
+    while True:
+        line = s.readline()
+        if not line:
+            break
+        out.append(line)
+    assert out == [
+        '{"pre":true}',
+        '{"a":1}',
+        '{"mid":true}',
+        '{"b":"two"}',
+        '{"post":true}',
+    ]
+
