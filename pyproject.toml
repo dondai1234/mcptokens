@@ -31,7 +31,7 @@ dev = [
 [project.urls]
 Repository = "https://github.com/dondai1234/mcptokens"
 Issues = "https://github.com/dondai1234/mcptokens/issues"
-Changelog = "https://github.com/dondai1234/mcptokens/blob/master/CHANGELOG.md"
+Changelog = "https://github.com/dondai1234/mcptokens/blob/main/CHANGELOG.md"
 
 [project.scripts]
 mcptokens = "mcptokens.cli:main"
