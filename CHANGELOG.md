@@ -21,15 +21,11 @@ Components:
   over budget.
 - `cli.py` — slim two-verb CLI: `mcptokens <server-argv>...` and
   `mcptokens serve`.
-- Tests — 31 passing in < 10s. Engine subprocess + id-matching +
-  null-coercion, server budget assertion + e2e via mcp ClientSession,
-  CLI flag parsing + exit codes.
 
 Notes:
 - The product review surface is the MCP tool definition itself, not
   the CLI. The CLI is a thin human-side debug hatch.
-- The package name `mcptokens` (not `contextlens`) is final. The old
-  PyPI project lives at `pip install contextlens==...` historically;
-  new installs go through `mcptokens`.
+- The package name `mcptokens` is final. New installs go through
+  `pip install mcptokens`.
 
-Self-cost: 172 tokens of `cl100k_base`. Budget: 1000 tokens.
+Self-cost: 172 tokens of `cl100k_base`.

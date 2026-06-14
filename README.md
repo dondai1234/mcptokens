@@ -44,11 +44,10 @@ OpenCode, Codex, ...). The agent gains one tool:
 }
 ```
 
-Then the agent calls:
+The agent calls:
 
 ```python
-inspect(command=["hound"])                      # 1023 wire tokens, 8 tools
-inspect(command=["python", "-m", "my_server"])  # ...
+inspect(command=["python", "-m", "some_mcp_server"])
 ```
 
 The agent decides whether to enable the candidate server based on
@@ -63,8 +62,6 @@ the answer.
 | Cross-platform        | Linux, macOS, Windows            |
 | Python                | 3.11+                            |
 | Imports               | `tiktoken`, `mcp`                |
-| Source                | 5 files, ~700 LOC                |
-| Tests                 | 31 passing in under 10 seconds   |
 
 ## Install
 
@@ -77,11 +74,10 @@ Add `mcptokens` to your agent's `mcpServers` / `mcp_servers`. Done.
 ## CLI (debug surface)
 
 ```bash
-mcptokens hound                       # human table
-mcptokens --json hound                # pipeline-friendly JSON
-mcptokens --timeout 30 python -m srv  # custom spawn
-mcptokens serve                       # run as an MCP server
-mcptokens --version                   # 0.1.0
+mcptokens python -m some_mcp_server     # human table
+mcptokens --json python -m some_mcp_server   # pipeline-friendly JSON
+mcptokens --timeout 30 python -m srv    # custom spawn, custom timeout
+mcptokens serve                         # run as an MCP server
 ```
 
 | Flag          | Default        | Purpose                                       |
@@ -95,15 +91,6 @@ mcptokens --version                   # 0.1.0
 One server, one tool, tight description, minimal schema. The
 shipped tool definition tokenizes to **172 tokens**. A small tool
 list is the product.
-
-## Tests
-
-```bash
-python -m pytest tests/  # 31 passing in under 10 seconds
-```
-
-Engine tests cover JSON-RPC id-matching, null-safe shape coercion,
-timeouts, and end-to-end via `mcp.ClientSession`.
 
 ## License
 

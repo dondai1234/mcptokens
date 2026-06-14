@@ -40,10 +40,10 @@ Add `mcptokens` to your agent's MCP config. The agent gains:
 ## Use as CLI (debug surface)
 
 ```bash
-mcptokens hound                      # human table
-mcptokens --json hound               # pipeline-friendly
-mcptokens --timeout 30 python -m srv # custom spawn
-mcptokens serve                      # run as an MCP server
+mcptokens python -m some_mcp_server           # human table
+mcptokens --json python -m some_mcp_server    # pipeline-friendly
+mcptokens --timeout 30 python -m some_server # custom spawn, custom timeout
+mcptokens serve                               # run as an MCP server
 ```
 
 ## Why this exists
