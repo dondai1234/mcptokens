@@ -4,6 +4,65 @@ All notable changes to `mcptokens` are documented in this file.
 
 ## [Unreleased]
 
+## [1.0.0] — 2026-06-14
+
+First major release. One tool — `inspect` — now covers both
+stdio and Streamable HTTP MCP servers, with a sharper description
+that lets the agent learn the call shape on the first try.
+
+Multi-transport support:
+
+- `transport="stdio"` (default): spawn a subprocess. Same as
+  before.
+- `transport="streamable_http"`: POST initialize + tools/list
+  to a remote endpoint per MCP 2025-03-26. Server may reply
+  via `application/json` (single message) or `text/event-stream`
+  (one or more messages). The inspector handles both. Stdlib
+  `urllib.request` — no `httpx` dependency. Optional `headers`
+  for auth (e.g. `{"Authorization": "Bearer ..."}`).
+
+Agent-time speedups (the model spends fewer tokens deciding
+how to use it):
+
+- `command` accepts a string (`"python -m srv"`) OR array
+  (`["python","-m","srv"]`). Shlex-split; both normalized to a
+  list before spawn.
+- Description lists the canonical spawn patterns (binary, python
+  module, npm/npx, docker) and explicitly nudges the agent to
+  ASK THE USER for argv it doesn't already know.
+- Output is compact by default (only `{name, total}` per tool)
+  so the agent can scan many candidates in one round without
+  burning context on per-schema dumps. Pass `verbose=true` on
+  a tool call for the full Recipe A+ breakdown (we left this
+  hook off the public schema deliberately to avoid bloating the
+  agent's view of the world; only the description references it).
+
+Reliability hardening:
+
+- Errors come back as `{"ok": false, "error": "...", ...}` —
+  same shape for spawn / protocol / HTTP / timeout / unknown
+  transport. No stack traces leak to the agent.
+- HTTP transport tolerates 202 Accepted on `notifications/initialized`
+  per spec; missing `Mcp-Session-Id` header is fine.
+- The dispatcher traps unexpected exceptions before they can
+  break the MCP server loop; a defensive net for any path we
+  didn't enumerate.
+
+Self-cost rose to 691 tokens of `cl100k_base` (one tool, two
+transports, sharper description). Still under the 1000-token
+budget; pinned by `test_self_cost_under_budget` (< 900) and
+`test_description_is_tight` (< 500).
+
+Tests: 45 / 45 passing in ~20 s, including:
+
+- Stdio: subprocess end-to-end, malformed shapes, timeout,
+  notification-only servers, missing-binary failure.
+- HTTP: real `http.server.ThreadingHTTPServer` on `127.0.0.1`,
+  both `application/json` and `text/event-stream` responses.
+- Dispatcher: command-as-string shlex split, command-as-array,
+  transport="streamable_http" with URL, URL-less, unreachable URL,
+  unknown transport, compact default response, verbose response.
+
 ## [0.1.5] — 2026-06-14
 
 Bug fix: `mcptokens serve` no longer drops the connection on

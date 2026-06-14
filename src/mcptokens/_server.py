@@ -38,8 +38,8 @@ from mcptokens import __version__
 from mcptokens._engine import (
     DEFAULT_ENCODING,
     DEFAULT_TIMEOUT_SECONDS,
-    InspectError,
     SUPPORTED_ENCODINGS,
+    inspect,
     inspect_server,
 )
 
@@ -49,36 +49,86 @@ _MAX_MESSAGE_BYTES = 100 * 1024 * 1024  # 100MB; protects against runaways
 _TOOL_DEF: dict = {
     "name": "inspect",
     "description": (
-        "Count the tool-definition token cost of any MCP server. "
-        "Pass argv (e.g. ['hound'] or ['python','-m','server']); "
-        "returns per-tool tokens and a wire total. Call BEFORE "
-        "enabling an MCP server to know its cost. This server's "
-        "own cost stays under 1k tokens, so shipping it is cheap."
+        "Count the tool-def token cost of any MCP server (stdio or HTTP).\n"
+        "\n"
+        "INPUT. Pass `command` = the EXACT argv your MCP config uses to start\n"
+        "the server. Two forms accepted, both normalized to a list:\n"
+        "  [\"python\",\"-m\",\"some_mcp_server\"]    argv array (preferred)\n"
+        "  \"python -m some_mcp_server\"             string, shlex-split\n"
+        "\n"
+        "Common patterns:\n"
+        "  [\"hound\"]                                pre-installed binary\n"
+        "  [\"python\",\"-m\",\"some_pkg\"]            python module\n"
+        "  [\"npx\",\"-y\",\"@scope/pkg\",\"--arg\"] npm-based server\n"
+        "  [\"docker\",\"run\",\"-i\",\"img\",\"--\"]   docker container (stdio)\n"
+        "\n"
+        "If you do not already KNOW the exact argv, ASK THE USER. Don't\n"
+        "guess. Don't infer from package names alone.\n"
+        "\n"
+        "For a remote/hosted server, set transport=\"streamable_http\" and\n"
+        "pass `url` (e.g. \"http://localhost:8080/mcp\") and optional\n"
+        "`headers` (e.g. {Authorization: \"Bearer ...\"}).\n"
+        "\n"
+        "OUTPUT. Same shape every call, regardless of transport:\n"
+        "  {ok: bool, server: str, tool_count: int,\n"
+        "   wire_total_tokens: int,\n"
+        "   tools: [{name, total: int}],   # name and total only by default\n"
+        "   elapsed_ms, encoding, version}\n"
+        "\n"
+        "The single number that matters is `wire_total_tokens`. Report\n"
+        "that. Use this BEFORE enabling an MCP server: a large value\n"
+        "means the server is too expensive for the harness.\n"
+        "\n"
+        "This server's own cost is ~172 tokens in your harness. Cheap\n"
+        "to ship; one tool call per candidate server."
     ),
     "inputSchema": {
         "type": "object",
         "properties": {
             "command": {
-                "type": "array",
-                "items": {"type": "string"},
-                "description": (
-                    "Argv to spawn the stdio MCP server, e.g. "
-                    "['python','-m','server'] or ['hound']."
-                ),
+                "oneOf": [
+                    {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Spawn argv (preferred, identical to your MCP config).",
+                    },
+                    {
+                        "type": "string",
+                        "description": "Spawn argv as a single string (shlex-split).",
+                    },
+                ],
+                "description": "Required when transport='stdio' (default). The argv that starts the MCP server. If you don't know it, ASK the user.",
+            },
+            "transport": {
+                "type": "string",
+                "enum": ["stdio", "streamable_http"],
+                "default": "stdio",
+                "description": "stdio: spawn a local process. streamable_http: POST to a remote endpoint per MCP 2025-03-26.",
+            },
+            "url": {
+                "type": "string",
+                "description": "Required when transport='streamable_http'. Server endpoint, e.g. 'http://localhost:8080/mcp'.",
+            },
+            "headers": {
+                "type": "object",
+                "additionalProperties": {"type": "string"},
+                "description": "Optional HTTP headers (e.g. {'Authorization': 'Bearer ...'}). Forwarded on every request.",
             },
             "encoding": {
                 "type": "string",
                 "enum": list(SUPPORTED_ENCODINGS),
                 "default": DEFAULT_ENCODING,
+                "description": "Tiktoken encoding. Default 'cl100k_base'; use 'o200k_base' for GPT-4o / GPT-5.",
             },
             "timeout": {
                 "type": "number",
                 "default": DEFAULT_TIMEOUT_SECONDS,
                 "minimum": 1,
                 "maximum": 60,
+                "description": "Wall-clock timeout in seconds. Default 15, range 1..60.",
             },
         },
-        "required": ["command"],
+        "required": [],
     },
 }
 
@@ -113,30 +163,28 @@ async def _list_tools() -> list:
 async def _call_tool(name: str, arguments: dict) -> list:
     if name != "inspect":
         raise ValueError(f"mcptokens has no tool named {name!r}")
-    command = arguments.get("command")
-    if not isinstance(command, list) or not command or not all(
-        isinstance(a, str) for a in command
-    ):
-        raise ValueError(
-            "inspect: argument `command` must be a non-empty list of strings"
-        )
-    encoding = arguments.get("encoding", DEFAULT_ENCODING)
-    timeout = arguments.get("timeout", DEFAULT_TIMEOUT_SECONDS)
-
+    # Always run through the dispatcher: same JSON shape regardless
+    # of transport. Failures render as `{"ok": false, "error": "..."}`
+    # so the agent gets the same response envelope even on error, and
+    # doesn't have to special-case unknown errors.
+    req = dict(arguments)
+    req.setdefault("version", __version__)
     try:
-        report = inspect_server(
-            command, encoding=encoding, timeout_seconds=float(timeout), version=__version__
-        )
-    except InspectError as exc:
+        report = inspect(req)
+        payload = report.as_dict()
+    except Exception as exc:  # defensive net: never let an unhandled error kill the server
         payload = {
             "ok": False,
-            "server": " ".join(command),
-            "error": str(exc),
-            "encoding": encoding,
+            "server": "<unknown>",
+            "tool_count": 0,
+            "tools": [],
+            "wire_total_tokens": 0,
+            "encoding": req.get("encoding", DEFAULT_ENCODING),
+            "elapsed_ms": 0,
+            "version": __version__,
+            "error": f"internal: {type(exc).__name__}: {exc}",
         }
-        return [types.TextContent(type="text", text=json.dumps(payload))]
-
-    return [types.TextContent(type="text", text=json.dumps(report.as_dict()))]
+    return [types.TextContent(type="text", text=json.dumps(payload))]
 
 
 # --- framing-compatible stdin adapter ----------------------------------

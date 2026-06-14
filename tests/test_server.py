@@ -35,8 +35,8 @@ def test_self_cost_under_budget():
     that cost fits the published budget."""
     import mcptokens._server as server
     assert server._SELF_TOKEN_COST <= server._SELF_TOKEN_BUDGET
-    # The shipped number we report.
-    assert server._SELF_TOKEN_COST < 500, (
+    # Sharp upper bound: keep the entire tool def cheap.
+    assert server._SELF_TOKEN_COST < 900, (
         f"self-cost grew to {server._SELF_TOKEN_COST}; trim the "
         f"description or inputSchema."
     )
@@ -48,19 +48,30 @@ def test_tool_def_serializes_to_expected_shape():
     assert td["name"] == "inspect"
     assert "inputSchema" in td
     assert td["inputSchema"]["type"] == "object"
-    assert td["inputSchema"]["required"] == ["command"]
+    # v1.0.0: required=[]. The dispatcher decides what's needed based
+    # on `transport` (stdio needs `command`; streamable_http needs
+    # `url`); we describe this in the description field.
     assert "command" in td["inputSchema"]["properties"]
+    assert "transport" in td["inputSchema"]["properties"]
+    assert "url" in td["inputSchema"]["properties"]
+    assert "encoding" in td["inputSchema"]["properties"]
+    assert "timeout" in td["inputSchema"]["properties"]
     cmd = td["inputSchema"]["properties"]["command"]
-    assert cmd["type"] == "array"
-    assert cmd["items"]["type"] == "string"
+    # Acceptable forms: array of strings OR single string.
+    assert "oneOf" in cmd or cmd.get("type") == "array"
+    transport = td["inputSchema"]["properties"]["transport"]
+    assert transport["type"] == "string"
+    assert "stdio" in transport["enum"]
+    assert "streamable_http" in transport["enum"]
 
 
 def test_description_is_tight():
     import mcptokens._server as server
     enc = tiktoken.get_encoding(DEFAULT_ENCODING)
     desc_tokens = len(enc.encode(server._TOOL_DEF["description"]))
-    # ~120 tokens is generous for this product.
-    assert desc_tokens < 120, f"description is {desc_tokens} tokens; trim"
+    # v1.0.0 carries multi-transport guidance + common-pattern list.
+    # Allow up to 500 tokens; 1k budget is the hard ceiling.
+    assert desc_tokens < 500, f"description is {desc_tokens} tokens; trim"
 
 
 # --- 2. One tool exposed via list_tools() -------------------------------

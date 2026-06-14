@@ -11,6 +11,11 @@ Public surface:
         -> InspectReport
     InspectError  (raised on spawn / protocol failures)
     InspectReport, ToolStats   (dataclasses; serialize via .as_dict())
+
+v1.0.0 adds a transport-aware dispatcher, `inspect(req)`, which
+accepts either `transport="stdio"` with a spawn argv, or
+`transport="streamable_http"` with a URL. Both share the response
+shape so the agent learns one tool, not two.
 """
 from __future__ import annotations
 
@@ -84,12 +89,22 @@ class InspectReport:
     error: str = ""
     version: str = ""
 
-    def as_dict(self) -> dict[str, Any]:
+    def as_dict(self, *, verbose: bool = False) -> dict[str, Any]:
+        """Serialize the report. `verbose=False` (default) keeps the
+        payload compact so the agent can scan many reports in one
+        prompt without burning its context on per-tool schema dumps.
+        Set `verbose=True` to include the full Recipe A+ breakdown."""
+        if verbose:
+            tool_payloads = [t.as_dict() for t in self.tools]
+        else:
+            tool_payloads = [
+                {"name": t.name, "tokens": t.total_tokens} for t in self.tools
+            ]
         return {
             "ok": self.ok,
             "server": self.server,
             "tool_count": len(self.tools),
-            "tools": [t.as_dict() for t in self.tools],
+            "tools": tool_payloads,
             "wire_total_tokens": self.wire_total_tokens,
             "encoding": self.encoding,
             "elapsed_ms": self.elapsed_ms,
@@ -411,3 +426,133 @@ def _drain_stderr(proc: subprocess.Popen, *, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     return "..." + text[-max_chars:]
+
+
+# --- dispatch (v1.0.0) -------------------------------------------------
+
+
+def _coerce_command(command) -> list[str]:
+    """`command` may arrive as a string OR a list of strings. We
+    normalise to a list. Strings are split using POSIX shell rules
+    so users can pass `"python -m srv"` exactly as written in their
+    MCP config without re-tokenising."""
+    import shlex
+    if isinstance(command, list):
+        if not command or not all(isinstance(a, str) for a in command):
+            raise InspectError("command array must be a non-empty list of strings")
+        return command
+    if isinstance(command, str):
+        if not command.strip():
+            raise InspectError("command string is empty")
+        try:
+            return shlex.split(command, posix=True)
+        except ValueError as exc:
+            raise InspectError(f"command string failed shlex split: {exc!r}") from exc
+    raise InspectError(
+        f"command must be a string or list of strings, got {type(command).__name__}"
+    )
+
+
+def _fail_report(
+    server: str,
+    encoding: str,
+    version: str,
+    error: str,
+    *,
+    started_monotonic: float,
+) -> InspectReport:
+    """Build a non-OK report with zero tools but a one-line error."""
+    return InspectReport(
+        ok=False,
+        server=server,
+        tools=[],
+        wire_total_tokens=0,
+        encoding=encoding,
+        elapsed_ms=int((time.monotonic() - started_monotonic) * 1000),
+        error=error,
+        version=version,
+    )
+
+
+def inspect(req: dict[str, Any]) -> InspectReport:
+    """Single transport-aware entry. `req` is the JSON-RPC
+    `arguments` dict the agent passes. Recognised keys:
+
+    - `transport`: "stdio" (default) or "streamable_http".
+    - `command`: spawn argv. String ("python -m srv") or array
+      (["python","-m","srv"]). Required for stdio.
+    - `url`: HTTP endpoint. Required for streamable_http.
+    - `headers`: optional dict forwarded to every HTTP request.
+    - `encoding`: tiktoken encoding ("cl100k_base" or "o200k_base").
+    - `timeout`: per-call wall-clock timeout in seconds (1-60).
+
+    Always returns an `InspectReport`; on failure `ok=False` and
+    `error` carries a one-line reason. Same JSON shape regardless
+    of transport — that's the whole point of v1.0.0: one tool,
+    one response shape the agent learns once."""
+    from mcptokens._http import inspect_http
+
+    transport = req.get("transport", "stdio")
+    encoding = req.get("encoding", DEFAULT_ENCODING)
+    timeout = float(req.get("timeout", DEFAULT_TIMEOUT_SECONDS))
+    version = req.get("version", "1.0.0")
+
+    started = time.monotonic()
+    if transport == "stdio":
+        try:
+            command = _coerce_command(req.get("command"))
+        except InspectError as exc:
+            return _fail_report(
+                server="<stdio>", encoding=encoding, version=version,
+                error=str(exc), started_monotonic=started,
+            )
+        if not command:
+            return _fail_report(
+                server="<stdio>", encoding=encoding, version=version,
+                error="command is empty", started_monotonic=started,
+            )
+        try:
+            return inspect_server(
+                command,
+                encoding=encoding,
+                timeout_seconds=timeout,
+                version=version,
+            )
+        except InspectError as exc:
+            return _fail_report(
+                server=" ".join(command), encoding=encoding, version=version,
+                error=str(exc), started_monotonic=started,
+            )
+    if transport == "streamable_http":
+        url = req.get("url")
+        if not isinstance(url, str) or not url:
+            return _fail_report(
+                server="<streamable_http>", encoding=encoding, version=version,
+                error="url is required for streamable_http transport",
+                started_monotonic=started,
+            )
+        headers = req.get("headers") or {}
+        if not isinstance(headers, dict):
+            return _fail_report(
+                server=url, encoding=encoding, version=version,
+                error="headers must be a dict of {name: str}",
+                started_monotonic=started,
+            )
+        try:
+            return inspect_http(
+                url,
+                headers=dict(headers),
+                encoding=encoding,
+                timeout_seconds=timeout,
+                version=version,
+            )
+        except InspectError as exc:
+            return _fail_report(
+                server=url, encoding=encoding, version=version,
+                error=str(exc), started_monotonic=started,
+            )
+    return _fail_report(
+        server=f"<{transport!r}>", encoding=encoding, version=version,
+        error=f"unknown transport: {transport!r}",
+        started_monotonic=started,
+    )

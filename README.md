@@ -1,8 +1,8 @@
 # mcptokens
 
-**172 tokens in your agent's harness.** One tool, `inspect`, that
-counts the tool-definition cost of any other MCP server before you
-enable it.
+**691 tokens in your agent's harness.** One tool, `inspect`, that
+counts the tool-definition cost of any other MCP server (stdio or
+Streamable HTTP) before you enable it.
 
 ```bash
 pip install mcptokens
@@ -24,44 +24,53 @@ agent's context on every turn. The cost compounds fast. `mcptokens`
 lets the agent ask *is this server cheap enough?* before flipping
 the switch.
 
+## Transports
+
+Same tool, same response shape:
+
+- **stdio** (default): spawn a local process and speak JSON-RPC
+  on its stdin/stdout.
+- **streamable_http**: POST `initialize` and `tools/list` to a
+  remote MCP endpoint per MCP 2025-03-26. Server may reply via
+  `application/json` (one message) or `text/event-stream`.
+
 ## How
 
 Add `mcptokens` to your agent's MCP config (Claude Code, Pi,
 OpenCode, Codex, ...). The agent gains one tool:
 
-```jsonc
-{
-  "name": "inspect",
-  "description": "Count tool-def tokens of any MCP server. Pass argv [...]",
-  "inputSchema": {
-    "properties": {
-      "command":  {"type": "array",  "items": {"type": "string"}},
-      "encoding": {"type": "string", "enum": ["cl100k_base","o200k_base"], "default": "cl100k_base"},
-      "timeout":  {"type": "number", "default": 15, "minimum": 1, "maximum": 60}
-    },
-    "required": ["command"]
-  }
-}
-```
-
-The agent calls:
-
 ```python
 inspect(command=["python", "-m", "some_mcp_server"])
+# stdio spawn argv, same as your MCP config
+
+inspect(command=["hound"])
+# pre-installed binary
+
+inspect(
+    transport="streamable_http",
+    url="http://localhost:8080/mcp",
+    headers={"Authorization": "Bearer ..."},  # optional
+)
+# remote MCP server
+
+# Returns the same JSON shape every call:
+# {ok, server, tool_count, wire_total_tokens,
+#  tools: [{name, total}], encoding, elapsed_ms, version}
 ```
 
-The agent decides whether to enable the candidate server based on
-the answer.
+`wire_total_tokens` is the number to report. Use it BEFORE
+enabling a candidate server: a large value means don't enable.
 
 ## The numbers
 
 | | |
 |--|--|
-| **Self-cost on wire** | **172 tokens** of `cl100k_base` |
-| Tools exposed         | **1**, named `inspect`           |
-| Cross-platform        | Linux, macOS, Windows            |
-| Python                | 3.11+                            |
-| Imports               | `tiktoken`, `mcp`                |
+| **Self-cost on wire** | **691 tokens** of `cl100k_base`            |
+| Tools exposed         | **1**, named `inspect`                     |
+| Transports            | stdio, streamable_http                     |
+| Cross-platform        | Linux, macOS, Windows                      |
+| Python                | 3.11+                                      |
+| Imports               | stdlib, `tiktoken`, `mcp`                  |
 
 ## Install
 
@@ -85,12 +94,6 @@ mcptokens serve                         # run as an MCP server
 | `--encoding`  | `cl100k_base`  | `cl100k_base` or `o200k_base`                 |
 | `--timeout`   | `15`           | Per-server timeout in seconds (1 to 60)       |
 | `--json`      | `false`        | Output JSON instead of the table              |
-
-## Why it's cheap
-
-One server, one tool, tight description, minimal schema. The
-shipped tool definition tokenizes to **172 tokens**. A small tool
-list is the product.
 
 ## License
 
