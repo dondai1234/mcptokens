@@ -74,6 +74,20 @@ def test_description_is_tight():
     assert desc_tokens < 500, f"description is {desc_tokens} tokens; trim"
 
 
+def test_description_does_not_pester_user():
+    """v1.0.0 had a `If you do not already KNOW the exact argv, ASK
+    THE USER` line in the description. That dragged round-trips
+    in for every candidate MCP server. The agent should figure out
+    spawn args from its own context (it can read its harness's MCP
+    config, inspect a running server, etc.) without pestering the
+    user. Pining so the line never sneaks back in."""
+    import mcptokens._server as server
+    desc = server._TOOL_DEF["description"]
+    assert "ASK THE USER" not in desc.upper()
+    assert "ask the user" not in desc.lower()
+
+
+
 # --- 2. One tool exposed via list_tools() -------------------------------
 
 
