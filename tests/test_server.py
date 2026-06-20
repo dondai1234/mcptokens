@@ -87,24 +87,24 @@ def test_description_does_not_pester_user():
     assert "ask the user" not in desc.lower()
 
 
-def test_description_has_wrong_vs_right_examples():
-    """v1.1.0: the #1 agent mistake is passing a server name instead
-    of the full spawn command. The description must show WRONG vs
-    RIGHT examples so the agent learns on the first try."""
+def test_description_directs_to_harness_config():
+    """The agent gets `command` by reading its OWN harness MCP config
+    and copying a server's spawn argv verbatim. That makes the
+    name-vs-full-command mistake impossible, so the v1.1.0
+    WRONG/RIGHT hand-holding was retired. Pin the config-lookup
+    rule so it stays the primary instruction."""
     import mcptokens._server as server
     desc = server._TOOL_DEF["description"]
-    assert "WRONG" in desc, "description missing WRONG example"
-    assert "RIGHT" in desc, "description missing RIGHT examples"
-    assert "config" in desc.lower(), "description doesn't mention MCP config"
-    assert "full" in desc.lower() or "exact" in desc.lower()
-
-
-def test_description_mentions_not_just_name():
-    """Pin: the description must explicitly say command is NOT just
-    the server name. This is the #1 agent mistake."""
-    import mcptokens._server as server
-    desc = server._TOOL_DEF["description"]
-    assert "not just" in desc.lower() or "not the" in desc.lower()
+    low = desc.lower()
+    assert "mcp config" in low or "mcpconfig" in low, (
+        "description must tell the agent to read its harness MCP config"
+    )
+    assert "mcpServers" in desc or "mcp_servers" in desc, (
+        "description must name the config key the agent looks for"
+    )
+    assert "verbatim" in low or "copy" in low, (
+        "description must say to copy the argv, not reconstruct it"
+    )
 
 
 

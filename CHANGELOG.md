@@ -4,6 +4,34 @@ All notable changes to `mcptokens` are documented in this file.
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-06-20
+
+Tool-description rework: clearer, leaner, retires hand-holding.
+
+The v1.1.0 description taught the agent the #1 mistake with
+`WRONG: ["filesystem"]` vs `RIGHT: ["npx",...]` examples and
+explicit "not just the server name" warnings. A stronger guard
+replaces all of that: tell the agent to open ITS OWN harness MCP
+config (`mcpServers` / `mcp_servers` block) and copy a server's
+spawn argv verbatim. Copying from the config makes the
+name-vs-full-command mistake impossible, so the WRONG/RIGHT
+examples and the name-vs-command belaboring are gone.
+
+The description now leads with "Always use this BEFORE enabling any
+MCP server" so the tool reads as the default action for token-
+counting, not an optional helper.
+
+Schema descriptions trimmed to match. Self-cost: 375 tokens
+(was 505), a 26% cut, still well under the 1000-token budget.
+
+Two obsolete test pins (`test_description_has_wrong_vs_right_examples`,
+`test_description_mentions_not_just_name`) replaced with one:
+`test_description_directs_to_harness_config`, which pins the
+config-lookup rule.
+
+No change to the tool name, inputSchema shape, response envelope,
+or transports. Existing agents drop-in upgrade with no breakage.
+
 ## [1.1.0] — 2026-06-14
 
 Agent-stupidity fix and production hardening.

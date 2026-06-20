@@ -49,28 +49,22 @@ _MAX_MESSAGE_BYTES = 100 * 1024 * 1024  # 100MB; protects against runaways
 _TOOL_DEF: dict = {
     "name": "inspect",
     "description": (
-        "Count the tool-def token cost of any MCP server before enabling it.\n"
+        "Always use this BEFORE enabling any MCP server: count the\n"
+        "tool-definition tokens its tools will add to your context every turn.\n"
         "\n"
-        "CRITICAL: `command` is the FULL spawn line from your harness MCP\n"
-        "config — the exact command that starts the server. NOT just the\n"
-        "server name.\n"
+        "To get `command`: open YOUR OWN harness MCP config (the mcpServers /\n"
+        "mcp_servers block) and copy a server's spawn argv verbatim — that\n"
+        "array is exactly what to pass. One call per candidate. The config\n"
+        "is the source of truth; do not reconstruct it from memory or\n"
+        "package names.\n"
         "\n"
-        "WRONG: [\"filesystem\"]           ← a name, not a command\n"
-        "RIGHT: [\"npx\",\"-y\",\"@anthropic-ai/mcp-filesystem\",\"/path\"]\n"
-        "RIGHT: [\"python\",\"-m\",\"some_server\"]\n"
-        "RIGHT: [\"hound\"]                 ← pre-installed binary\n"
-        "RIGHT: \"python -m srv\"           ← string form (shlex-split)\n"
-        "\n"
-        "Don't know the command? Check your harness MCP config\n"
-        "(mcpServers entries) for the exact argv.\n"
-        "\n"
-        "For remote servers: transport=\"streamable_http\", url=\"http://host/mcp\",\n"
-        "optional headers={Authorization: \"Bearer ...\"}.\n"
+        "Remote server: transport=\"streamable_http\", url=\"http://host/mcp\",\n"
+        "optional headers.\n"
         "\n"
         "Returns: {ok, server, tool_count, wire_total_tokens,\n"
         "  tools: [{name, tokens}], error, hint, encoding, elapsed_ms, version}\n"
         "\n"
-        "`wire_total_tokens` is the number to report. Use BEFORE enabling."
+        "Report `wire_total_tokens`. Large = do not enable."
     ),
     "inputSchema": {
         "type": "object",
@@ -80,29 +74,29 @@ _TOOL_DEF: dict = {
                     {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Full spawn argv from MCP config.",
+                        "description": "argv array",
                     },
                     {
                         "type": "string",
-                        "description": "Full spawn line as string (shlex-split).",
+                        "description": "string, shlex-split",
                     },
                 ],
-                "description": "Required for stdio (default). The FULL command that starts the server, e.g. [\"npx\",\"-y\",\"@scope/pkg\"]. NOT just the server name.",
+                "description": "Spawn argv (stdio), copied from your MCP config.",
             },
             "transport": {
                 "type": "string",
                 "enum": ["stdio", "streamable_http"],
                 "default": "stdio",
-                "description": "stdio: spawn a local process. streamable_http: POST to a remote endpoint.",
+                "description": "stdio: spawn local process. streamable_http: POST to remote endpoint.",
             },
             "url": {
                 "type": "string",
-                "description": "Required when transport='streamable_http'. E.g. 'http://localhost:8080/mcp'.",
+                "description": "Required for streamable_http. E.g. http://localhost:8080/mcp",
             },
             "headers": {
                 "type": "object",
                 "additionalProperties": {"type": "string"},
-                "description": "Optional HTTP headers (e.g. {Authorization: 'Bearer ...'}).",
+                "description": "Optional HTTP headers, e.g. {Authorization: Bearer ...}",
             },
             "encoding": {
                 "type": "string",
